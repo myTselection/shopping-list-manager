@@ -869,3 +869,67 @@ def websocket_get_categories(
             "categories": [cat.to_dict() for cat in categories]
         }
     )
+
+
+# =============================================================================
+# INTEGRATION SETTINGS HANDLERS
+# =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "shopping_list_manager/get_integration_settings",
+    }
+)
+@callback
+def websocket_get_integration_settings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Return current country and available country options."""
+    country = hass.data[DOMAIN].get("country", "NZ")
+    connection.send_result(
+        msg["id"],
+        {
+            "country": country,
+            "available_countries": {
+                "NZ": "New Zealand",
+                "AU": "Australia",
+                "US": "United States",
+                "GB": "United Kingdom",
+                "CA": "Canada",
+            },
+        }
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "shopping_list_manager/set_country",
+        vol.Required("country"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_set_country(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Switch to a different country catalog. Preserves user-added products."""
+    country = msg["country"].upper()
+    storage = get_storage(hass)
+
+    count = await storage.reload_catalog(country)
+
+    # Persist to HA config entry so country survives restart
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if entries:
+        entry = entries[0]
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "country": country})
+
+    hass.data[DOMAIN]["country"] = country
+
+    connection.send_result(
+        msg["id"],
+        {"success": True, "country": country, "products_loaded": count}
+    )

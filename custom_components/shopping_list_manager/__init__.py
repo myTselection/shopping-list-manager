@@ -202,7 +202,17 @@ async def _async_register_websocket_handlers(
         hass,
         handlers.websocket_get_categories,
     )
-    
+
+    # Integration settings handlers
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_get_integration_settings,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_set_country,
+    )
+
     _LOGGER.debug("WebSocket handlers registered")
 
 

@@ -466,6 +466,54 @@ class ShoppingListStorage:
         _LOGGER.debug("Added product: %s", new_product.name)
         return new_product
     
+    async def reload_catalog(self, country_code: str) -> int:
+        """Replace catalog-sourced products with those from a new country's catalog.
+        Products with source='user' are preserved."""
+        catalog_ids = [
+            pid for pid, p in self._products.items()
+            if getattr(p, 'source', 'user') == 'catalog'
+        ]
+        for pid in catalog_ids:
+            del self._products[pid]
+
+        self._country = country_code
+        catalog_products = await load_product_catalog(self._component_path, country_code)
+        count = 0
+        for prod_data in catalog_products:
+            try:
+                product = Product(
+                    id=prod_data.get("id", generate_id()),
+                    name=prod_data["name"],
+                    category_id=prod_data.get("category_id", "other"),
+                    aliases=prod_data.get("aliases", []),
+                    default_unit=prod_data.get("default_unit", "units"),
+                    default_quantity=prod_data.get("default_quantity", 1),
+                    price=prod_data.get("price") or prod_data.get("typical_price"),
+                    currency=self.hass.config.currency,
+                    barcode=prod_data.get("barcode"),
+                    brands=prod_data.get("brands", []),
+                    image_url=prod_data.get("image_url", ""),
+                    custom=False,
+                    source="catalog",
+                    tags=prod_data.get("tags", []),
+                    collections=prod_data.get("collections", []),
+                    taxonomy=prod_data.get("taxonomy", {}),
+                    allergens=prod_data.get("allergens", []),
+                    substitution_group=prod_data.get("substitution_group", ""),
+                    priority_level=prod_data.get("priority_level", 0),
+                    image_hint=prod_data.get("image_hint", "")
+                )
+                self._products[product.id] = product
+                count += 1
+            except Exception as err:
+                _LOGGER.error("Failed to import product %s: %s", prod_data.get("name"), err)
+
+        await self._save_products()
+        products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
+        self._search_engine = ProductSearch(products_dict)
+        _LOGGER.info("Reloaded catalog for %s: %d products imported", country_code, count)
+        return count
+
     async def update_product(self, product_id: str, **kwargs) -> Optional[Product]:
         """Update a product."""
         if product_id not in self._products:

@@ -933,3 +933,42 @@ async def websocket_set_country(
         msg["id"],
         {"success": True, "country": country, "products_loaded": count}
     )
+
+
+# =============================================================================
+# BACKUP / RESTORE HANDLERS
+# =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "shopping_list_manager/export_data",
+    }
+)
+@websocket_api.async_response
+async def websocket_export_data(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Export all user-created data as a JSON-serialisable dict."""
+    storage = get_storage(hass)
+    data = await storage.export_user_data()
+    connection.send_result(msg["id"], data)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "shopping_list_manager/import_data",
+        vol.Required("data"): dict,
+    }
+)
+@websocket_api.async_response
+async def websocket_import_data(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Import user data from a backup payload."""
+    storage = get_storage(hass)
+    counts = await storage.import_user_data(msg["data"])
+    connection.send_result(msg["id"], {"success": True, "imported": counts})

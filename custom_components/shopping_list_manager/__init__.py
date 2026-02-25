@@ -213,6 +213,16 @@ async def _async_register_websocket_handlers(
         handlers.websocket_set_country,
     )
 
+    # Backup / Restore handlers
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_export_data,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_import_data,
+    )
+
     _LOGGER.debug("WebSocket handlers registered")
 
 

@@ -460,6 +460,9 @@ class ShoppingListStorage:
         )
         self._products[new_product.id] = new_product
         await self._save_products()
+        # Rebuild search engine so the new product is immediately searchable
+        products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
+        self._search_engine = ProductSearch(products_dict)
         _LOGGER.debug("Added product: %s", new_product.name)
         return new_product
     

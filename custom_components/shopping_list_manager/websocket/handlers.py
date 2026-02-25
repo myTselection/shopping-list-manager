@@ -146,7 +146,7 @@ async def ws_get_products_by_ids(
     product_ids = set(msg["product_ids"])
 
     # Get all products from storage
-    all_products = storage.get_all_products()
+    all_products = storage.get_products()
 
     products = [
         product.to_dict()

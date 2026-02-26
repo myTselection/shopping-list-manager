@@ -223,6 +223,18 @@ async def _async_register_websocket_handlers(
         handlers.websocket_import_data,
     )
 
+    # List members handler
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_update_list_members,
+    )
+
+    # HA users handler
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_get_ha_users,
+    )
+
     _LOGGER.debug("WebSocket handlers registered")
 
 

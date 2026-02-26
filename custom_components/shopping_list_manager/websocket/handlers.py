@@ -14,6 +14,8 @@ from ..const import (
     WS_TYPE_LISTS_UPDATE,
     WS_TYPE_LISTS_DELETE,
     WS_TYPE_LISTS_SET_ACTIVE,
+    WS_TYPE_LISTS_UPDATE_MEMBERS,
+    WS_TYPE_USERS_GET_ALL,
     WS_TYPE_ITEMS_GET,
     WS_TYPE_ITEMS_ADD,
     WS_TYPE_ITEMS_UPDATE,
@@ -171,8 +173,11 @@ def websocket_get_lists(
 ) -> None:
     """Handle get all lists command."""
     storage = get_storage(hass)
-    lists = storage.get_lists()
-    
+    user = connection.user
+    user_id = user.id if user else None
+    is_admin = user.is_admin if user else False
+    lists = storage.get_lists(user_id=user_id, is_admin=is_admin)
+
     connection.send_result(
         msg["id"],
         {
@@ -186,6 +191,7 @@ def websocket_get_lists(
         vol.Required("type"): WS_TYPE_LISTS_CREATE,
         vol.Required("name"): str,
         vol.Optional("icon", default="mdi:cart"): str,
+        vol.Optional("private", default=True): bool,
     }
 )
 @websocket_api.async_response
@@ -196,10 +202,15 @@ async def websocket_create_list(
 ) -> None:
     """Handle create list command."""
     storage = get_storage(hass)
-    
+
+    # Private lists are owned by the creating user; global lists have no owner.
+    is_private = msg.get("private", True)
+    owner_id = connection.user.id if is_private and connection.user else None
+
     new_list = await storage.create_list(
         name=msg["name"],
-        icon=msg.get("icon", "mdi:cart")
+        icon=msg.get("icon", "mdi:cart"),
+        owner_id=owner_id,
     )
     
     # Fire event
@@ -275,9 +286,21 @@ async def websocket_delete_list(
     """Handle delete list command."""
     storage = get_storage(hass)
     list_id = msg["list_id"]
-    
+
+    lst = storage.get_list(list_id)
+    if lst is None:
+        connection.send_error(msg["id"], "not_found", "List not found")
+        return
+
+    # Only the owner or an admin may delete a private list
+    if lst.owner_id is not None:
+        user = connection.user
+        if not (user and (user.is_admin or user.id == lst.owner_id)):
+            connection.send_error(msg["id"], "forbidden", "Only the list owner can delete this list")
+            return
+
     success = await storage.delete_list(list_id)
-    
+
     if not success:
         connection.send_error(msg["id"], "not_found", "List not found")
         return
@@ -972,3 +995,68 @@ async def websocket_import_data(
     storage = get_storage(hass)
     counts = await storage.import_user_data(msg["data"])
     connection.send_result(msg["id"], {"success": True, "imported": counts})
+
+
+# =============================================================================
+# LIST MEMBERS HANDLER
+# =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_LISTS_UPDATE_MEMBERS,
+        vol.Required("list_id"): str,
+        vol.Required("allowed_users"): [str],
+    }
+)
+@websocket_api.async_response
+async def websocket_update_list_members(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Update the allowed_users for a private list."""
+    storage = get_storage(hass)
+    list_id = msg["list_id"]
+
+    lst = storage.get_list(list_id)
+    if lst is None:
+        connection.send_error(msg["id"], "not_found", "List not found")
+        return
+
+    # Only the owner or an admin may manage members
+    user = connection.user
+    if lst.owner_id is not None and not (user and (user.is_admin or user.id == lst.owner_id)):
+        connection.send_error(msg["id"], "forbidden", "Only the list owner can manage members")
+        return
+
+    updated = await storage.update_list_members(list_id, msg["allowed_users"])
+    hass.bus.async_fire(
+        EVENT_LIST_UPDATED,
+        {"list_id": list_id, "action": "members_updated"}
+    )
+    connection.send_result(msg["id"], {"list": updated.to_dict()})
+
+
+# =============================================================================
+# HA USERS HANDLER
+# =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_USERS_GET_ALL,
+    }
+)
+@websocket_api.async_response
+async def websocket_get_ha_users(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Return all active, non-system HA users."""
+    users = await hass.auth.async_get_users()
+    result = [
+        {"id": u.id, "name": u.name}
+        for u in users
+        if not u.system_generated and u.is_active
+    ]
+    connection.send_result(msg["id"], {"users": result})

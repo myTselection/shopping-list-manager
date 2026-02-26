@@ -16,6 +16,10 @@ WS_TYPE_LISTS_CREATE = f"{DOMAIN}/lists/create"
 WS_TYPE_LISTS_UPDATE = f"{DOMAIN}/lists/update"
 WS_TYPE_LISTS_DELETE = f"{DOMAIN}/lists/delete"
 WS_TYPE_LISTS_SET_ACTIVE = f"{DOMAIN}/lists/set_active"
+WS_TYPE_LISTS_UPDATE_MEMBERS = f"{DOMAIN}/lists/update_members"
+
+# WebSocket Commands - Users
+WS_TYPE_USERS_GET_ALL = f"{DOMAIN}/users/get_all"
 
 # WebSocket Commands - Items
 WS_TYPE_ITEMS_GET = f"{DOMAIN}/items/get"

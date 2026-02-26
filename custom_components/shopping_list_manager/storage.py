@@ -159,9 +159,21 @@ class ShoppingListStorage:
         data = {list_id: lst.to_dict() for list_id, lst in self._lists.items()}
         await self._store_lists.async_save(data)
     
-    def get_lists(self) -> List[ShoppingList]:
-        """Get all lists."""
-        return list(self._lists.values())
+    def get_lists(self, user_id: str = None, is_admin: bool = False) -> List[ShoppingList]:
+        """Get lists visible to the specified user.
+
+        Global lists (owner_id=None) are visible to everyone.
+        Private lists are visible to their owner, anyone in allowed_users, and admins.
+        """
+        all_lists = list(self._lists.values())
+        if is_admin or user_id is None:
+            return all_lists
+        return [
+            lst for lst in all_lists
+            if lst.owner_id is None
+            or lst.owner_id == user_id
+            or user_id in (lst.allowed_users or [])
+        ]
     
     def get_list(self, list_id: str) -> Optional[ShoppingList]:
         """Get a specific list."""
@@ -174,13 +186,14 @@ class ShoppingListStorage:
                 return lst
         return None
     
-    async def create_list(self, name: str, icon: str = "mdi:cart") -> ShoppingList:
-        """Create a new list."""
+    async def create_list(self, name: str, icon: str = "mdi:cart", owner_id: str = None) -> ShoppingList:
+        """Create a new list. Pass owner_id to make the list private to that user."""
         new_list = ShoppingList(
             id=generate_id(),
             name=name,
             icon=icon,
-            category_order=[cat.id for cat in self._categories]
+            category_order=[cat.id for cat in self._categories],
+            owner_id=owner_id,
         )
         self._lists[new_list.id] = new_list
         self._items[new_list.id] = []
@@ -206,6 +219,18 @@ class ShoppingListStorage:
         _LOGGER.debug("Updated list: %s", list_id)
         return lst
     
+    async def update_list_members(self, list_id: str, allowed_users: List[str]) -> Optional[ShoppingList]:
+        """Update the allowed_users for a private list."""
+        if list_id not in self._lists:
+            return None
+        lst = self._lists[list_id]
+        lst.allowed_users = allowed_users
+        from .models import current_timestamp
+        lst.updated_at = current_timestamp()
+        await self._save_lists()
+        _LOGGER.debug("Updated members for list: %s", list_id)
+        return lst
+
     async def delete_list(self, list_id: str) -> bool:
         """Delete a list."""
         if list_id not in self._lists:

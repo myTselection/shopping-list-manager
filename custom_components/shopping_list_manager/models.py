@@ -107,6 +107,9 @@ class ShoppingList:
     item_order: List[str] = field(default_factory=list)
     category_order: List[str] = field(default_factory=list)
     active: bool = False
+    # Ownership: None = visible to all users; set = private to owner + allowed_users
+    owner_id: Optional[str] = None
+    allowed_users: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

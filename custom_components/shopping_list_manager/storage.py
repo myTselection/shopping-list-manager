@@ -1,5 +1,8 @@
 """Storage management for Shopping List Manager."""
+import json
 import logging
+import os
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from .utils.search import ProductSearch
 from homeassistant.core import HomeAssistant
@@ -11,9 +14,10 @@ from .const import (
     STORAGE_KEY_ITEMS,
     STORAGE_KEY_PRODUCTS,
     STORAGE_KEY_CATEGORIES,
+    STORAGE_KEY_LOYALTY_CARDS,
 )
 from .data.catalog_loader import load_product_catalog
-from .models import ShoppingList, Item, Product, Category, generate_id
+from .models import ShoppingList, Item, Product, Category, LoyaltyCard, generate_id
 from .data.category_loader import load_categories
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,11 +41,13 @@ class ShoppingListStorage:
         self._store_items = Store(hass, STORAGE_VERSION, STORAGE_KEY_ITEMS)
         self._store_products = Store(hass, STORAGE_VERSION, STORAGE_KEY_PRODUCTS)
         self._store_categories = Store(hass, STORAGE_VERSION, STORAGE_KEY_CATEGORIES)
-        
+        self._store_loyalty_cards = Store(hass, STORAGE_VERSION, STORAGE_KEY_LOYALTY_CARDS)
+
         self._lists: Dict[str, ShoppingList] = {}
         self._items: Dict[str, List[Item]] = {}
         self._products: Dict[str, Product] = {}
         self._categories: List[Category] = []
+        self._loyalty_cards: Dict[str, LoyaltyCard] = {}
         self._search_engine: Optional[ProductSearch] = None
     
     async def async_load(self) -> None:
@@ -141,6 +147,15 @@ class ShoppingListStorage:
                 await self._save_products()
                 _LOGGER.info("Successfully imported %d products from catalog", len(self._products))
     
+        # Load loyalty cards
+        loyalty_data = await self._store_loyalty_cards.async_load()
+        if loyalty_data:
+            self._loyalty_cards = {
+                card_id: LoyaltyCard(**card_data)
+                for card_id, card_data in loyalty_data.items()
+            }
+            _LOGGER.debug("Loaded %d loyalty cards", len(self._loyalty_cards))
+
 # Initialize search engine after products are loaded
         if self._products:
             products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
@@ -156,9 +171,21 @@ class ShoppingListStorage:
         data = {list_id: lst.to_dict() for list_id, lst in self._lists.items()}
         await self._store_lists.async_save(data)
     
-    def get_lists(self) -> List[ShoppingList]:
-        """Get all lists."""
-        return list(self._lists.values())
+    def get_lists(self, user_id: str = None, is_admin: bool = False) -> List[ShoppingList]:
+        """Get lists visible to the specified user.
+
+        Global lists (owner_id=None) are visible to everyone.
+        Private lists are visible to their owner, anyone in allowed_users, and admins.
+        """
+        all_lists = list(self._lists.values())
+        if is_admin or user_id is None:
+            return all_lists
+        return [
+            lst for lst in all_lists
+            if lst.owner_id is None
+            or lst.owner_id == user_id
+            or user_id in (lst.allowed_users or [])
+        ]
     
     def get_list(self, list_id: str) -> Optional[ShoppingList]:
         """Get a specific list."""
@@ -171,17 +198,19 @@ class ShoppingListStorage:
                 return lst
         return None
     
-    async def create_list(self, name: str, icon: str = "mdi:cart") -> ShoppingList:
-        """Create a new list."""
+    async def create_list(self, name: str, icon: str = "mdi:cart", owner_id: str = None) -> ShoppingList:
+        """Create a new list. Pass owner_id to make the list private to that user."""
         new_list = ShoppingList(
             id=generate_id(),
             name=name,
             icon=icon,
-            category_order=[cat.id for cat in self._categories]
+            category_order=[cat.id for cat in self._categories],
+            owner_id=owner_id,
         )
         self._lists[new_list.id] = new_list
         self._items[new_list.id] = []
         await self._save_lists()
+        await self._write_config_backup()
         _LOGGER.info("Created new list: %s", name)
         return new_list
     
@@ -202,6 +231,18 @@ class ShoppingListStorage:
         _LOGGER.debug("Updated list: %s", list_id)
         return lst
     
+    async def update_list_members(self, list_id: str, allowed_users: List[str]) -> Optional[ShoppingList]:
+        """Update the allowed_users for a private list."""
+        if list_id not in self._lists:
+            return None
+        lst = self._lists[list_id]
+        lst.allowed_users = allowed_users
+        from .models import current_timestamp
+        lst.updated_at = current_timestamp()
+        await self._save_lists()
+        _LOGGER.debug("Updated members for list: %s", list_id)
+        return lst
+
     async def delete_list(self, list_id: str) -> bool:
         """Delete a list."""
         if list_id not in self._lists:
@@ -460,25 +501,167 @@ class ShoppingListStorage:
         )
         self._products[new_product.id] = new_product
         await self._save_products()
+        await self._write_config_backup()
         # Rebuild search engine so the new product is immediately searchable
         products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
         self._search_engine = ProductSearch(products_dict)
         _LOGGER.debug("Added product: %s", new_product.name)
         return new_product
     
+    async def reload_catalog(self, country_code: str) -> int:
+        """Replace catalog-sourced products with those from a new country's catalog.
+        Products with source='user' are preserved."""
+        catalog_ids = [
+            pid for pid, p in self._products.items()
+            if getattr(p, 'source', 'user') == 'catalog'
+        ]
+        for pid in catalog_ids:
+            del self._products[pid]
+
+        self._country = country_code
+        catalog_products = await load_product_catalog(self._component_path, country_code)
+        count = 0
+        for prod_data in catalog_products:
+            try:
+                product = Product(
+                    id=prod_data.get("id", generate_id()),
+                    name=prod_data["name"],
+                    category_id=prod_data.get("category_id", "other"),
+                    aliases=prod_data.get("aliases", []),
+                    default_unit=prod_data.get("default_unit", "units"),
+                    default_quantity=prod_data.get("default_quantity", 1),
+                    price=prod_data.get("price") or prod_data.get("typical_price"),
+                    currency=self.hass.config.currency,
+                    barcode=prod_data.get("barcode"),
+                    brands=prod_data.get("brands", []),
+                    image_url=prod_data.get("image_url", ""),
+                    custom=False,
+                    source="catalog",
+                    tags=prod_data.get("tags", []),
+                    collections=prod_data.get("collections", []),
+                    taxonomy=prod_data.get("taxonomy", {}),
+                    allergens=prod_data.get("allergens", []),
+                    substitution_group=prod_data.get("substitution_group", ""),
+                    priority_level=prod_data.get("priority_level", 0),
+                    image_hint=prod_data.get("image_hint", "")
+                )
+                self._products[product.id] = product
+                count += 1
+            except Exception as err:
+                _LOGGER.error("Failed to import product %s: %s", prod_data.get("name"), err)
+
+        await self._save_products()
+        products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
+        self._search_engine = ProductSearch(products_dict)
+        _LOGGER.info("Reloaded catalog for %s: %d products imported", country_code, count)
+        return count
+
     async def update_product(self, product_id: str, **kwargs) -> Optional[Product]:
         """Update a product."""
         if product_id not in self._products:
             return None
-        
+
         product = self._products[product_id]
         for key, value in kwargs.items():
             if hasattr(product, key):
                 setattr(product, key, value)
-        
+
         await self._save_products()
+        await self._write_config_backup()
         _LOGGER.debug("Updated product: %s", product_id)
         return product
+
+    # ---------------------------------------------------------------------------
+    # Backup / Restore
+    # ---------------------------------------------------------------------------
+
+    async def export_user_data(self) -> dict:
+        """Return a serialisable snapshot of all user-created data."""
+        user_products = [
+            p.to_dict() for p in self._products.values()
+            if getattr(p, "source", "user") == "user"
+        ]
+        lists = [lst.to_dict() for lst in self._lists.values()]
+        items = {
+            list_id: [item.to_dict() for item in items_list]
+            for list_id, items_list in self._items.items()
+        }
+        return {
+            "slm_backup_version": "1.0",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "country": self._country,
+            "user_products": user_products,
+            "lists": lists,
+            "items": items,
+        }
+
+    async def import_user_data(self, data: dict) -> dict:
+        """Merge a backup into live storage. Skips anything already present by ID."""
+        imported_products = 0
+        imported_lists = 0
+        imported_items = 0
+
+        for prod_data in data.get("user_products", []):
+            prod_id = prod_data.get("id")
+            if prod_id and prod_id not in self._products:
+                try:
+                    self._products[prod_id] = Product(**prod_data)
+                    imported_products += 1
+                except Exception as err:
+                    _LOGGER.warning("Skipped product during import: %s", err)
+
+        if imported_products:
+            await self._save_products()
+            products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
+            self._search_engine = ProductSearch(products_dict)
+
+        for list_data in data.get("lists", []):
+            list_id = list_data.get("id")
+            if list_id and list_id not in self._lists:
+                try:
+                    lst = ShoppingList(**list_data)
+                    lst.active = False
+                    self._lists[list_id] = lst
+                    imported_lists += 1
+                except Exception as err:
+                    _LOGGER.warning("Skipped list during import: %s", err)
+
+        backup_items = data.get("items", {})
+        for list_id, items_list in backup_items.items():
+            if list_id in self._lists and list_id not in self._items:
+                try:
+                    self._items[list_id] = [Item(**d) for d in items_list]
+                    imported_items += len(self._items[list_id])
+                except Exception as err:
+                    _LOGGER.warning("Skipped items for list %s: %s", list_id, err)
+
+        if imported_lists or imported_items:
+            await self._save_lists()
+            await self._save_items()
+
+        _LOGGER.info(
+            "Import complete: %d products, %d lists, %d items",
+            imported_products, imported_lists, imported_items,
+        )
+        return {"products": imported_products, "lists": imported_lists, "items": imported_items}
+
+    async def _write_config_backup(self) -> None:
+        """Silently write a backup JSON to the HA config directory."""
+        try:
+            backup_path = os.path.join(
+                self.hass.config.config_dir,
+                "shopping_list_manager_backup.json",
+            )
+            data = await self.export_user_data()
+
+            def _write() -> None:
+                with open(backup_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+
+            await self.hass.async_add_executor_job(_write)
+            _LOGGER.debug("Auto-backup written to %s", backup_path)
+        except Exception as err:
+            _LOGGER.warning("Failed to write config backup: %s", err)
     
     # Categories methods
     async def _save_categories(self) -> None:
@@ -489,3 +672,81 @@ class ShoppingListStorage:
     def get_categories(self) -> List[Category]:
         """Get all categories."""
         return self._categories
+
+    # Loyalty card methods
+    async def _save_loyalty_cards(self) -> None:
+        """Save loyalty cards to storage."""
+        data = {card_id: card.to_dict() for card_id, card in self._loyalty_cards.items()}
+        await self._store_loyalty_cards.async_save(data)
+
+    def get_loyalty_cards(self, user_id: str = None, is_admin: bool = False) -> List[LoyaltyCard]:
+        """Get loyalty cards visible to the specified user.
+
+        Global cards (owner_id=None) are visible to everyone.
+        Private cards are visible to their owner, anyone in allowed_users, and admins.
+        """
+        all_cards = list(self._loyalty_cards.values())
+        if is_admin or user_id is None:
+            return all_cards
+        return [
+            card for card in all_cards
+            if card.owner_id is None
+            or card.owner_id == user_id
+            or user_id in (card.allowed_users or [])
+        ]
+
+    def get_loyalty_card(self, card_id: str) -> Optional[LoyaltyCard]:
+        """Get a specific loyalty card."""
+        return self._loyalty_cards.get(card_id)
+
+    async def create_loyalty_card(self, owner_id: str = None, **kwargs) -> LoyaltyCard:
+        """Create a new loyalty card."""
+        from .models import current_timestamp
+        new_card = LoyaltyCard(
+            id=generate_id(),
+            owner_id=owner_id,
+            **kwargs
+        )
+        self._loyalty_cards[new_card.id] = new_card
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Created loyalty card: %s", new_card.name)
+        return new_card
+
+    async def update_loyalty_card(self, card_id: str, **kwargs) -> Optional[LoyaltyCard]:
+        """Update a loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return None
+
+        card = self._loyalty_cards[card_id]
+        for key, value in kwargs.items():
+            if hasattr(card, key):
+                setattr(card, key, value)
+
+        from .models import current_timestamp
+        card.updated_at = current_timestamp()
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Updated loyalty card: %s", card_id)
+        return card
+
+    async def delete_loyalty_card(self, card_id: str) -> bool:
+        """Delete a loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return False
+
+        del self._loyalty_cards[card_id]
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Deleted loyalty card: %s", card_id)
+        return True
+
+    async def update_loyalty_card_members(self, card_id: str, allowed_users: List[str]) -> Optional[LoyaltyCard]:
+        """Update the allowed_users for a private loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return None
+
+        card = self._loyalty_cards[card_id]
+        card.allowed_users = allowed_users
+        from .models import current_timestamp
+        card.updated_at = current_timestamp()
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Updated members for loyalty card: %s", card_id)
+        return card

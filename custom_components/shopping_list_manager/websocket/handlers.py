@@ -1097,7 +1097,7 @@ async def websocket_get_loyalty_cards(
     vol.Optional("logo", default=""): str,
     vol.Optional("notes", default=""): str,
     vol.Optional("color", default="#9fa8da"): str,
-    vol.Optional("private", default=False): bool,
+    vol.Optional("private", default=True): bool,
 })
 @websocket_api.async_response
 async def websocket_add_loyalty_card(

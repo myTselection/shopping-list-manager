@@ -103,6 +103,7 @@ class LoyaltyCard:
     name: str
     number: str
     barcode: str = ""
+    barcode_type: str = "barcode"  # "barcode" or "qrcode"
     logo: str = ""
     notes: str = ""
     color: str = "#9fa8da"

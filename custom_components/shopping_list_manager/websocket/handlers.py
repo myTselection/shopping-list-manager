@@ -30,6 +30,11 @@ from ..const import (
     WS_TYPE_PRODUCTS_ADD,
     WS_TYPE_PRODUCTS_UPDATE,
     WS_TYPE_CATEGORIES_GET_ALL,
+    WS_TYPE_LOYALTY_GET_ALL,
+    WS_TYPE_LOYALTY_ADD,
+    WS_TYPE_LOYALTY_UPDATE,
+    WS_TYPE_LOYALTY_DELETE,
+    WS_TYPE_LOYALTY_UPDATE_MEMBERS,
     WS_TYPE_SUBSCRIBE,
     EVENT_ITEM_ADDED,
     EVENT_ITEM_UPDATED,
@@ -1060,3 +1065,150 @@ async def websocket_get_ha_users(
         if not u.system_generated and u.is_active
     ]
     connection.send_result(msg["id"], {"users": result})
+
+
+# =============================================================================
+# LOYALTY CARD HANDLERS
+# =============================================================================
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_LOYALTY_GET_ALL,
+})
+@websocket_api.async_response
+async def websocket_get_loyalty_cards(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Return all loyalty cards visible to the current user."""
+    storage = get_storage(hass)
+    user = connection.user
+    user_id = user.id if user else None
+    is_admin = user.is_admin if user else False
+    cards = storage.get_loyalty_cards(user_id=user_id, is_admin=is_admin)
+    connection.send_result(msg["id"], {"cards": [c.to_dict() for c in cards]})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_LOYALTY_ADD,
+    vol.Required("name"): str,
+    vol.Required("number"): str,
+    vol.Optional("barcode", default=""): str,
+    vol.Optional("logo", default=""): str,
+    vol.Optional("notes", default=""): str,
+    vol.Optional("color", default="#9fa8da"): str,
+    vol.Optional("private", default=False): bool,
+})
+@websocket_api.async_response
+async def websocket_add_loyalty_card(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Add a new loyalty card."""
+    storage = get_storage(hass)
+    user = connection.user
+    owner_id = user.id if (user and msg.get("private")) else None
+
+    card = await storage.create_loyalty_card(
+        owner_id=owner_id,
+        name=msg["name"],
+        number=msg["number"],
+        barcode=msg.get("barcode", ""),
+        logo=msg.get("logo", ""),
+        notes=msg.get("notes", ""),
+        color=msg.get("color", "#9fa8da"),
+    )
+    connection.send_result(msg["id"], {"card": card.to_dict()})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_LOYALTY_UPDATE,
+    vol.Required("card_id"): str,
+    vol.Optional("name"): str,
+    vol.Optional("number"): str,
+    vol.Optional("barcode"): str,
+    vol.Optional("logo"): str,
+    vol.Optional("notes"): str,
+    vol.Optional("color"): str,
+})
+@websocket_api.async_response
+async def websocket_update_loyalty_card(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Update an existing loyalty card."""
+    storage = get_storage(hass)
+    card_id = msg["card_id"]
+
+    card = storage.get_loyalty_card(card_id)
+    if card is None:
+        connection.send_error(msg["id"], "not_found", "Loyalty card not found")
+        return
+
+    user = connection.user
+    if card.owner_id is not None and not (user and (user.is_admin or user.id == card.owner_id)):
+        connection.send_error(msg["id"], "forbidden", "Only the card owner can update it")
+        return
+
+    fields = {k: v for k, v in msg.items() if k not in ("type", "id", "card_id")}
+    updated = await storage.update_loyalty_card(card_id, **fields)
+    connection.send_result(msg["id"], {"card": updated.to_dict()})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_LOYALTY_DELETE,
+    vol.Required("card_id"): str,
+})
+@websocket_api.async_response
+async def websocket_delete_loyalty_card(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Delete a loyalty card."""
+    storage = get_storage(hass)
+    card_id = msg["card_id"]
+
+    card = storage.get_loyalty_card(card_id)
+    if card is None:
+        connection.send_error(msg["id"], "not_found", "Loyalty card not found")
+        return
+
+    user = connection.user
+    if card.owner_id is not None and not (user and (user.is_admin or user.id == card.owner_id)):
+        connection.send_error(msg["id"], "forbidden", "Only the card owner can delete it")
+        return
+
+    await storage.delete_loyalty_card(card_id)
+    connection.send_result(msg["id"], {"success": True})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_LOYALTY_UPDATE_MEMBERS,
+    vol.Required("card_id"): str,
+    vol.Required("allowed_users"): [str],
+})
+@websocket_api.async_response
+async def websocket_update_loyalty_card_members(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Update the allowed_users for a private loyalty card."""
+    storage = get_storage(hass)
+    card_id = msg["card_id"]
+
+    card = storage.get_loyalty_card(card_id)
+    if card is None:
+        connection.send_error(msg["id"], "not_found", "Loyalty card not found")
+        return
+
+    user = connection.user
+    if card.owner_id is not None and not (user and (user.is_admin or user.id == card.owner_id)):
+        connection.send_error(msg["id"], "forbidden", "Only the card owner can manage members")
+        return
+
+    updated = await storage.update_loyalty_card_members(card_id, msg["allowed_users"])
+    connection.send_result(msg["id"], {"card": updated.to_dict()})

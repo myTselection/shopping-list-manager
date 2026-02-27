@@ -14,9 +14,10 @@ from .const import (
     STORAGE_KEY_ITEMS,
     STORAGE_KEY_PRODUCTS,
     STORAGE_KEY_CATEGORIES,
+    STORAGE_KEY_LOYALTY_CARDS,
 )
 from .data.catalog_loader import load_product_catalog
-from .models import ShoppingList, Item, Product, Category, generate_id
+from .models import ShoppingList, Item, Product, Category, LoyaltyCard, generate_id
 from .data.category_loader import load_categories
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,11 +41,13 @@ class ShoppingListStorage:
         self._store_items = Store(hass, STORAGE_VERSION, STORAGE_KEY_ITEMS)
         self._store_products = Store(hass, STORAGE_VERSION, STORAGE_KEY_PRODUCTS)
         self._store_categories = Store(hass, STORAGE_VERSION, STORAGE_KEY_CATEGORIES)
-        
+        self._store_loyalty_cards = Store(hass, STORAGE_VERSION, STORAGE_KEY_LOYALTY_CARDS)
+
         self._lists: Dict[str, ShoppingList] = {}
         self._items: Dict[str, List[Item]] = {}
         self._products: Dict[str, Product] = {}
         self._categories: List[Category] = []
+        self._loyalty_cards: Dict[str, LoyaltyCard] = {}
         self._search_engine: Optional[ProductSearch] = None
     
     async def async_load(self) -> None:
@@ -144,6 +147,15 @@ class ShoppingListStorage:
                 await self._save_products()
                 _LOGGER.info("Successfully imported %d products from catalog", len(self._products))
     
+        # Load loyalty cards
+        loyalty_data = await self._store_loyalty_cards.async_load()
+        if loyalty_data:
+            self._loyalty_cards = {
+                card_id: LoyaltyCard(**card_data)
+                for card_id, card_data in loyalty_data.items()
+            }
+            _LOGGER.debug("Loaded %d loyalty cards", len(self._loyalty_cards))
+
 # Initialize search engine after products are loaded
         if self._products:
             products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
@@ -660,3 +672,81 @@ class ShoppingListStorage:
     def get_categories(self) -> List[Category]:
         """Get all categories."""
         return self._categories
+
+    # Loyalty card methods
+    async def _save_loyalty_cards(self) -> None:
+        """Save loyalty cards to storage."""
+        data = {card_id: card.to_dict() for card_id, card in self._loyalty_cards.items()}
+        await self._store_loyalty_cards.async_save(data)
+
+    def get_loyalty_cards(self, user_id: str = None, is_admin: bool = False) -> List[LoyaltyCard]:
+        """Get loyalty cards visible to the specified user.
+
+        Global cards (owner_id=None) are visible to everyone.
+        Private cards are visible to their owner, anyone in allowed_users, and admins.
+        """
+        all_cards = list(self._loyalty_cards.values())
+        if is_admin or user_id is None:
+            return all_cards
+        return [
+            card for card in all_cards
+            if card.owner_id is None
+            or card.owner_id == user_id
+            or user_id in (card.allowed_users or [])
+        ]
+
+    def get_loyalty_card(self, card_id: str) -> Optional[LoyaltyCard]:
+        """Get a specific loyalty card."""
+        return self._loyalty_cards.get(card_id)
+
+    async def create_loyalty_card(self, owner_id: str = None, **kwargs) -> LoyaltyCard:
+        """Create a new loyalty card."""
+        from .models import current_timestamp
+        new_card = LoyaltyCard(
+            id=generate_id(),
+            owner_id=owner_id,
+            **kwargs
+        )
+        self._loyalty_cards[new_card.id] = new_card
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Created loyalty card: %s", new_card.name)
+        return new_card
+
+    async def update_loyalty_card(self, card_id: str, **kwargs) -> Optional[LoyaltyCard]:
+        """Update a loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return None
+
+        card = self._loyalty_cards[card_id]
+        for key, value in kwargs.items():
+            if hasattr(card, key):
+                setattr(card, key, value)
+
+        from .models import current_timestamp
+        card.updated_at = current_timestamp()
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Updated loyalty card: %s", card_id)
+        return card
+
+    async def delete_loyalty_card(self, card_id: str) -> bool:
+        """Delete a loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return False
+
+        del self._loyalty_cards[card_id]
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Deleted loyalty card: %s", card_id)
+        return True
+
+    async def update_loyalty_card_members(self, card_id: str, allowed_users: List[str]) -> Optional[LoyaltyCard]:
+        """Update the allowed_users for a private loyalty card."""
+        if card_id not in self._loyalty_cards:
+            return None
+
+        card = self._loyalty_cards[card_id]
+        card.allowed_users = allowed_users
+        from .models import current_timestamp
+        card.updated_at = current_timestamp()
+        await self._save_loyalty_cards()
+        _LOGGER.debug("Updated members for loyalty card: %s", card_id)
+        return card

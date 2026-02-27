@@ -235,6 +235,28 @@ async def _async_register_websocket_handlers(
         handlers.websocket_get_ha_users,
     )
 
+    # Loyalty card handlers
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_get_loyalty_cards,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_add_loyalty_card,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_update_loyalty_card,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_delete_loyalty_card,
+    )
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_update_loyalty_card_members,
+    )
+
     _LOGGER.debug("WebSocket handlers registered")
 
 

@@ -97,6 +97,27 @@ class Item:
 
 
 @dataclass
+class LoyaltyCard:
+    """Loyalty card model."""
+    id: str
+    name: str
+    number: str
+    barcode: str = ""
+    logo: str = ""
+    notes: str = ""
+    color: str = "#9fa8da"
+    created_at: str = field(default_factory=current_timestamp)
+    updated_at: str = field(default_factory=current_timestamp)
+    # Ownership: None = visible to all users; set = private to owner + allowed_users
+    owner_id: Optional[str] = None
+    allowed_users: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+
+@dataclass
 class ShoppingList:
     """Shopping list model."""
     id: str

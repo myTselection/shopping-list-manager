@@ -9,6 +9,7 @@ STORAGE_KEY_LISTS = f"{DOMAIN}.lists"
 STORAGE_KEY_ITEMS = f"{DOMAIN}.items"
 STORAGE_KEY_PRODUCTS = f"{DOMAIN}.products"
 STORAGE_KEY_CATEGORIES = f"{DOMAIN}.categories"
+STORAGE_KEY_LOYALTY_CARDS = f"{DOMAIN}.loyalty_cards"
 
 # WebSocket Commands - Lists
 WS_TYPE_LISTS_GET_ALL = f"{DOMAIN}/lists/get_all"
@@ -42,6 +43,13 @@ WS_TYPE_PRODUCTS_DELETE = f"{DOMAIN}/products/delete"
 # WebSocket Commands - Categories
 WS_TYPE_CATEGORIES_GET_ALL = f"{DOMAIN}/categories/get_all"
 WS_TYPE_CATEGORIES_REORDER = f"{DOMAIN}/categories/reorder"
+
+# WebSocket Commands - Loyalty Cards
+WS_TYPE_LOYALTY_GET_ALL = f"{DOMAIN}/loyalty/get_all"
+WS_TYPE_LOYALTY_ADD = f"{DOMAIN}/loyalty/add"
+WS_TYPE_LOYALTY_UPDATE = f"{DOMAIN}/loyalty/update"
+WS_TYPE_LOYALTY_DELETE = f"{DOMAIN}/loyalty/delete"
+WS_TYPE_LOYALTY_UPDATE_MEMBERS = f"{DOMAIN}/loyalty/update_members"
 
 # WebSocket Commands - Subscriptions
 WS_TYPE_SUBSCRIBE = f"{DOMAIN}/subscribe"

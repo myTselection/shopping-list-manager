@@ -1,14 +1,23 @@
 """WebSocket API handlers for Shopping List Manager."""
+import io
 import logging
+import re
+from pathlib import Path
 from typing import Any, Dict
 
 import voluptuous as vol
+from aiohttp import ClientTimeout
+from PIL import Image
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from ..const import DOMAIN
 
 from ..const import (
+    IMAGE_SIZE,
+    IMAGE_QUALITY,
+    IMAGES_LOCAL_DIR,
     WS_TYPE_LISTS_GET_ALL,
     WS_TYPE_LISTS_CREATE,
     WS_TYPE_LISTS_UPDATE,
@@ -781,6 +790,58 @@ def websocket_get_list_total(
 # =============================================================================
 # PRODUCT HANDLERS
 # =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "shopping_list_manager/products/download_image",
+        vol.Required("image_url"): str,
+        vol.Required("product_name"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_download_product_image(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Download a remote image and save it as WebP to the local images directory."""
+    raw_url: str = msg["image_url"]
+    product_name: str = msg["product_name"]
+
+    safe_stem = re.sub(r"[^a-z0-9_]", "", product_name.lower().replace(" ", "_")) or "product"
+    filename = f"{safe_stem}.webp"
+    images_dir = Path(hass.config.path(IMAGES_LOCAL_DIR))
+    images_dir.mkdir(parents=True, exist_ok=True)
+    dest = images_dir / filename
+
+    try:
+        session = async_get_clientsession(hass)
+        async with session.get(raw_url, timeout=ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                connection.send_error(msg["id"], "download_failed", f"HTTP {resp.status}")
+                return
+            raw = await resp.read()
+    except Exception as exc:  # noqa: BLE001
+        connection.send_error(msg["id"], "download_failed", str(exc))
+        return
+
+    try:
+        img = Image.open(io.BytesIO(raw))
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA")
+        img.thumbnail((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, format="WEBP", quality=IMAGE_QUALITY)
+        dest.write_bytes(out.getvalue())
+    except Exception as exc:  # noqa: BLE001
+        connection.send_error(msg["id"], "conversion_failed", str(exc))
+        return
+
+    connection.send_result(
+        msg["id"],
+        {"local_url": f"/local/shopping_list_manager/images/{filename}"},
+    )
+
 
 @websocket_api.websocket_command(
     {

@@ -816,7 +816,8 @@ async def websocket_download_product_image(
 
     try:
         session = async_get_clientsession(hass)
-        async with session.get(raw_url, timeout=ClientTimeout(total=10)) as resp:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; HomeAssistant/ShoppingListManager)"}
+        async with session.get(raw_url, timeout=ClientTimeout(total=15), headers=headers) as resp:
             if resp.status != 200:
                 connection.send_error(msg["id"], "download_failed", f"HTTP {resp.status}")
                 return
@@ -827,8 +828,14 @@ async def websocket_download_product_image(
 
     try:
         img = Image.open(io.BytesIO(raw))
-        if img.mode not in ("RGB", "RGBA"):
-            img = img.convert("RGBA")
+        # Convert to RGB for reliable lossy WebP encoding
+        # (RGBA, palette, grayscale modes can fail or produce oversized files)
+        if img.mode == "RGBA":
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[3])
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
         img.thumbnail((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
         out = io.BytesIO()
         img.save(out, format="WEBP", quality=IMAGE_QUALITY)

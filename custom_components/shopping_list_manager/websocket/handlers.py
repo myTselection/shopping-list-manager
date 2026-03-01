@@ -784,6 +784,28 @@ def websocket_get_list_total(
 
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): "shopping_list_manager/products/search_by_barcode",
+        vol.Required("barcode"): str,
+    }
+)
+@callback
+def websocket_search_by_barcode(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Find a single product by exact barcode match."""
+    storage = get_storage(hass)
+    barcode = msg["barcode"].strip()
+    match = next(
+        (p for p in storage._products.values() if p.barcode and p.barcode == barcode),
+        None,
+    )
+    connection.send_result(msg["id"], {"product": match.to_dict() if match else None})
+
+
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): "shopping_list_manager/products/substitutes",
         vol.Required("product_id"): str,
         vol.Optional("limit", default=5): int,

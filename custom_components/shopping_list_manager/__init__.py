@@ -173,6 +173,10 @@ async def _async_register_websocket_handlers(
     # Products handlers
     websocket_api.async_register_command(
         hass,
+        handlers.websocket_search_by_barcode,
+    )
+    websocket_api.async_register_command(
+        hass,
         handlers.websocket_search_products,
     )
     websocket_api.async_register_command(

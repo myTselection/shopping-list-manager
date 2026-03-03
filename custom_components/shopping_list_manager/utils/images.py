@@ -1,8 +1,14 @@
 """Image handling utilities for Shopping List Manager."""
 import logging
-import os
+import shutil
 from pathlib import Path
 from typing import Optional
+
+from ..const import (
+    IMAGES_LOCAL_DIR,
+    LEGACY_IMAGES_LOCAL_DIR,
+    LOCAL_IMAGE_URL_PREFIX,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,11 +24,28 @@ class ImageHandler:
             config_path: Path to HA config directory
         """
         self.hass = hass
-        # Images stored in /config/www/shopping_list_manager/images/
-        self._local_images_dir = Path(config_path) / "www" / "shopping_list_manager" / "images"
+        # Images stored in /config/www/images/shopping_list_manager/
+        self._local_images_dir = Path(hass.config.path(IMAGES_LOCAL_DIR))
+        self._legacy_images_dir = Path(hass.config.path(LEGACY_IMAGES_LOCAL_DIR))
         self._local_images_dir.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_files()
         
         _LOGGER.info("Image directory: %s", self._local_images_dir)
+
+    def _migrate_legacy_files(self) -> None:
+        """Move legacy image files to the new standardized directory."""
+        if not self._legacy_images_dir.exists() or self._legacy_images_dir == self._local_images_dir:
+            return
+        for src in self._legacy_images_dir.glob("*"):
+            if not src.is_file():
+                continue
+            dest = self._local_images_dir / src.name
+            if dest.exists():
+                continue
+            try:
+                shutil.move(str(src), str(dest))
+            except Exception as err:
+                _LOGGER.debug("Could not move legacy image %s: %s", src, err)
     
     def get_image_url(self, product_name: str, external_url: Optional[str] = None) -> str:
         """Get image URL for a product.
@@ -73,11 +96,11 @@ class ImageHandler:
             # Check exact match
             image_file = self._local_images_dir / f"{normalized_name}{ext}"
             if image_file.exists():
-                return f"/local/shopping_list_manager/images/{normalized_name}{ext}"
+                return f"{LOCAL_IMAGE_URL_PREFIX}{normalized_name}{ext}"
             
             # Check for files starting with the product name
             for file in self._local_images_dir.glob(f"{normalized_name}*{ext}"):
-                return f"/local/shopping_list_manager/images/{file.name}"
+                return f"{LOCAL_IMAGE_URL_PREFIX}{file.name}"
         
         return None
     

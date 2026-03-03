@@ -18,6 +18,7 @@ from ..const import (
     IMAGE_SIZE,
     IMAGE_QUALITY,
     IMAGES_LOCAL_DIR,
+    LOCAL_IMAGE_URL_PREFIX,
     WS_TYPE_LISTS_GET_ALL,
     WS_TYPE_LISTS_CREATE,
     WS_TYPE_LISTS_UPDATE,
@@ -846,7 +847,7 @@ async def websocket_download_product_image(
 
     connection.send_result(
         msg["id"],
-        {"local_url": f"/local/shopping_list_manager/images/{filename}"},
+        {"local_url": f"{LOCAL_IMAGE_URL_PREFIX}{filename}"},
     )
 
 

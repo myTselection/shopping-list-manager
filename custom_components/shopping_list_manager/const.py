@@ -76,7 +76,10 @@ IMAGE_FORMAT = "webp"
 IMAGE_SIZE = 200  # 200x200px
 IMAGE_QUALITY = 85
 IMAGE_MAX_SIZE_KB = 15
-IMAGES_LOCAL_DIR = "www/shopping_list_manager/images"
+IMAGES_LOCAL_DIR = "www/images/shopping_list_manager"
+LEGACY_IMAGES_LOCAL_DIR = "www/shopping_list_manager/images"
+LOCAL_IMAGE_URL_PREFIX = "/local/images/shopping_list_manager/"
+LEGACY_IMAGE_URL_PREFIX = "/local/shopping_list_manager/images/"
 
 # Placeholder image (inline SVG)
 PLACEHOLDER_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='16' fill='%23999'%3ENo Image%3C/text%3E%3C/svg%3E"

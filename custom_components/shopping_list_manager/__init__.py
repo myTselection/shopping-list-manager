@@ -202,6 +202,10 @@ async def _async_register_websocket_handlers(
     )
     websocket_api.async_register_command(
         hass,
+        handlers.websocket_delete_product,
+    )
+    websocket_api.async_register_command(
+        hass,
         handlers.websocket_get_product_substitutes,
     )
     

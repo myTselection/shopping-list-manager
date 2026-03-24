@@ -39,6 +39,7 @@ from ..const import (
     WS_TYPE_PRODUCTS_SUGGESTIONS,
     WS_TYPE_PRODUCTS_ADD,
     WS_TYPE_PRODUCTS_UPDATE,
+    WS_TYPE_PRODUCTS_DELETE,
     WS_TYPE_CATEGORIES_GET_ALL,
     WS_TYPE_LOYALTY_GET_ALL,
     WS_TYPE_LOYALTY_ADD,
@@ -1055,6 +1056,27 @@ async def websocket_update_product(
         msg["id"],
         {"product": updated_product.to_dict()}
     )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_PRODUCTS_DELETE,
+        vol.Required("product_id"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_delete_product(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Handle delete product command."""
+    storage = get_storage(hass)
+    deleted = await storage.delete_product(msg["product_id"])
+    if not deleted:
+        connection.send_error(msg["id"], "not_found", "Product not found")
+        return
+    connection.send_result(msg["id"], {"deleted": True})
 
 
 # =============================================================================

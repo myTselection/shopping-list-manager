@@ -472,7 +472,7 @@ def websocket_get_items(
         vol.Required("type"): WS_TYPE_ITEMS_ADD,
         vol.Required("list_id"): str,
         vol.Required("name"): str,
-        vol.Required("category_id"): str,
+        vol.Optional("category_id", default="other"): str,
         vol.Optional("product_id"): str,
         vol.Optional("quantity", default=1): vol.Coerce(float),
         vol.Optional("unit", default="units"): str,

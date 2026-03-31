@@ -209,6 +209,12 @@ async def _async_register_websocket_handlers(
         handlers.websocket_get_product_substitutes,
     )
     
+    # OpenFoodFacts proxy
+    websocket_api.async_register_command(
+        hass,
+        handlers.websocket_off_fetch,
+    )
+
     # Categories handlers
     websocket_api.async_register_command(
         hass,

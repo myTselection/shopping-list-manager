@@ -618,6 +618,18 @@ class ShoppingListStorage:
         _LOGGER.info("Reloaded catalog for %s: %d products imported", country_code, count)
         return count
 
+    async def delete_product(self, product_id: str) -> bool:
+        """Delete a product from the catalog."""
+        if product_id not in self._products:
+            return False
+        del self._products[product_id]
+        await self._save_products()
+        # Rebuild search engine so the product is no longer searchable
+        products_dict = {pid: p.to_dict() for pid, p in self._products.items()}
+        self._search_engine = ProductSearch(products_dict)
+        _LOGGER.debug("Deleted product: %s", product_id)
+        return True
+
     async def update_product(self, product_id: str, **kwargs) -> Optional[Product]:
         """Update a product."""
         if product_id not in self._products:

@@ -39,6 +39,8 @@ from ..const import (
     WS_TYPE_PRODUCTS_SUGGESTIONS,
     WS_TYPE_PRODUCTS_ADD,
     WS_TYPE_PRODUCTS_UPDATE,
+    WS_TYPE_PRODUCTS_DELETE,
+    WS_TYPE_OFF_FETCH,
     WS_TYPE_CATEGORIES_GET_ALL,
     WS_TYPE_LOYALTY_GET_ALL,
     WS_TYPE_LOYALTY_ADD,
@@ -472,7 +474,7 @@ def websocket_get_items(
         vol.Required("type"): WS_TYPE_ITEMS_ADD,
         vol.Required("list_id"): str,
         vol.Required("name"): str,
-        vol.Required("category_id"): str,
+        vol.Optional("category_id", default="other"): str,
         vol.Optional("product_id"): str,
         vol.Optional("quantity", default=1): vol.Coerce(float),
         vol.Optional("unit", default="units"): str,
@@ -1057,6 +1059,27 @@ async def websocket_update_product(
     )
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_PRODUCTS_DELETE,
+        vol.Required("product_id"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_delete_product(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Handle delete product command."""
+    storage = get_storage(hass)
+    deleted = await storage.delete_product(msg["product_id"])
+    if not deleted:
+        connection.send_error(msg["id"], "not_found", "Product not found")
+        return
+    connection.send_result(msg["id"], {"deleted": True})
+
+
 # =============================================================================
 # CATEGORY HANDLERS
 # =============================================================================
@@ -1082,6 +1105,64 @@ def websocket_get_categories(
             "categories": [cat.to_dict() for cat in categories]
         }
     )
+
+
+# =============================================================================
+# OPENFOODFACTS PROXY HANDLERS
+# =============================================================================
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_OFF_FETCH,
+        vol.Optional("query"): str,
+        vol.Optional("barcode"): str,
+        vol.Optional("page_size", default=5): int,
+    }
+)
+@websocket_api.async_response
+async def websocket_off_fetch(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: Dict[str, Any],
+) -> None:
+    """Proxy OpenFoodFacts requests through HA to avoid browser CORS restrictions."""
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    from aiohttp import ClientTimeout
+
+    session = async_get_clientsession(hass)
+    headers = {"User-Agent": "HomeAssistant/ShoppingListManager (contact@homeassistant.io)"}
+
+    try:
+        if msg.get("barcode"):
+            barcode = msg["barcode"]
+            fields = "product_name,categories_tags,image_front_thumb_url,image_front_url,image_url,price"
+            url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields={fields}"
+            async with session.get(url, timeout=ClientTimeout(total=10), headers=headers) as resp:
+                if not resp.ok:
+                    connection.send_result(msg["id"], {"status": 0})
+                    return
+                data = await resp.json(content_type=None)
+                connection.send_result(msg["id"], {
+                    "status": data.get("status", 0),
+                    "product": data.get("product"),
+                })
+        else:
+            query = msg.get("query", "")
+            page_size = msg.get("page_size", 5)
+            fields = "product_name,categories_tags,image_front_thumb_url,image_front_url,image_url,price"
+            url = (
+                f"https://world.openfoodfacts.org/api/v2/search"
+                f"?search_terms={query}&fields={fields}&page_size={page_size}"
+            )
+            async with session.get(url, timeout=ClientTimeout(total=10), headers=headers) as resp:
+                if not resp.ok:
+                    connection.send_result(msg["id"], {"products": []})
+                    return
+                data = await resp.json(content_type=None)
+                connection.send_result(msg["id"], {"products": data.get("products", [])})
+    except Exception as err:
+        _LOGGER.warning("OpenFoodFacts proxy request failed: %s", err)
+        connection.send_error(msg["id"], "fetch_failed", str(err))
 
 
 # =============================================================================

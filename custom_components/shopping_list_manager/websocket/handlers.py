@@ -1182,10 +1182,12 @@ def websocket_get_integration_settings(
 ) -> None:
     """Return current country and available country options."""
     country = hass.data[DOMAIN].get("country", "NZ")
+    version = hass.data[DOMAIN].get("version", "unknown")
     connection.send_result(
         msg["id"],
         {
             "country": country,
+            "version": version,
             "available_countries": {
                 "NZ": "New Zealand",
                 "AU": "Australia",

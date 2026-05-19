@@ -27,27 +27,33 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Shopping List Manager from a config entry."""
     _LOGGER.info("Setting up Shopping List Manager")
-    
+
     # Get component path for loading data files
     component_path = os.path.dirname(__file__)
     config_path = hass.config.path()
-    
+
     # Get country from options (or fall back to data, or default to NZ)
     country = entry.options.get("country") or entry.data.get("country", "NZ")
     _LOGGER.info("Using country: %s", country)
-    
+
     # Initialize storage with country
     storage = ShoppingListStorage(hass, component_path, country)
     await storage.async_load()
 
     # Initialize image handler
     image_handler = ImageHandler(hass, config_path)
-    
+
+    # Read installed version from manifest
+    import json as _json
+    with open(os.path.join(component_path, "manifest.json")) as _f:
+        _manifest = _json.load(_f)
+
     # Store instances in hass.data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][DATA_STORAGE] = storage
     hass.data[DOMAIN]["image_handler"] = image_handler
     hass.data[DOMAIN]["country"] = country
+    hass.data[DOMAIN]["version"] = _manifest.get("version", "unknown")
     
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(update_listener))

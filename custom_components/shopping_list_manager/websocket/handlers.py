@@ -59,10 +59,34 @@ from .. import get_storage
 
 _LOGGER = logging.getLogger(__name__)
 
+OPENFOODFACTS_DEFAULT_BASE_URL = "https://world.openfoodfacts.org"
+OPENFOODFACTS_BASE_URL_BY_COUNTRY = {
+    "BE": "https://be.openfoodfacts.org",
+}
+OPENFOODFACTS_ACCEPT_LANGUAGE_BY_COUNTRY = {
+    "BE": "nl-BE,nl;q=0.9,en;q=0.7",
+}
+
 
 # =============================================================================
 # ACCESS-CHECK HELPERS
 # =============================================================================
+
+def _get_openfoodfacts_request_config(hass: HomeAssistant) -> tuple[str, Dict[str, str]]:
+    """Return the OpenFoodFacts base URL and headers for the active catalog."""
+    country = hass.data.get(DOMAIN, {}).get("country", "NZ")
+    base_url = OPENFOODFACTS_BASE_URL_BY_COUNTRY.get(
+        country,
+        OPENFOODFACTS_DEFAULT_BASE_URL,
+    )
+    headers = {
+        "User-Agent": "HomeAssistant/ShoppingListManager (contact@homeassistant.io)",
+    }
+    if accept_language := OPENFOODFACTS_ACCEPT_LANGUAGE_BY_COUNTRY.get(country):
+        headers["Accept-Language"] = accept_language
+
+    return base_url, headers
+
 
 def _user_can_access_list(lst, user) -> bool:
     """Return True if the user may read or write to this list.
@@ -1126,17 +1150,14 @@ async def websocket_off_fetch(
     msg: Dict[str, Any],
 ) -> None:
     """Proxy OpenFoodFacts requests through HA to avoid browser CORS restrictions."""
-    from homeassistant.helpers.aiohttp_client import async_get_clientsession
-    from aiohttp import ClientTimeout
-
     session = async_get_clientsession(hass)
-    headers = {"User-Agent": "HomeAssistant/ShoppingListManager (contact@homeassistant.io)"}
+    base_url, headers = _get_openfoodfacts_request_config(hass)
 
     try:
         if msg.get("barcode"):
             barcode = msg["barcode"]
             fields = "product_name,categories_tags,image_front_thumb_url,image_front_url,image_url,price"
-            url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields={fields}"
+            url = f"{base_url}/api/v2/product/{barcode}.json?fields={fields}"
             async with session.get(url, timeout=ClientTimeout(total=10), headers=headers) as resp:
                 if not resp.ok:
                     connection.send_result(msg["id"], {"status": 0})
@@ -1151,7 +1172,7 @@ async def websocket_off_fetch(
             page_size = msg.get("page_size", 5)
             fields = "product_name,categories_tags,image_front_thumb_url,image_front_url,image_url,price"
             url = (
-                f"https://world.openfoodfacts.org/api/v2/search"
+                f"{base_url}/api/v2/search"
                 f"?search_terms={query}&fields={fields}&page_size={page_size}"
             )
             async with session.get(url, timeout=ClientTimeout(total=10), headers=headers) as resp:

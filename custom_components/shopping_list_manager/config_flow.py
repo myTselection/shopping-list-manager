@@ -50,7 +50,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -59,9 +59,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         # Get current settings
-        current_country = self.config_entry.options.get(
+        current_country = self._config_entry.options.get(
             "country", 
-            self.config_entry.data.get("country", "NZ")
+            self._config_entry.data.get("country", "NZ")
         )
 
         return self.async_show_form(
@@ -76,15 +76,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 }),
                 vol.Optional(
                     "enable_price_tracking",
-                    default=self.config_entry.options.get("enable_price_tracking", True)
+                    default=self._config_entry.options.get("enable_price_tracking", True)
                 ): bool,
                 vol.Optional(
                     "enable_image_search",
-                    default=self.config_entry.options.get("enable_image_search", True)
+                    default=self._config_entry.options.get("enable_image_search", True)
                 ): bool,
                 vol.Optional(
                     "metric_units_only",
-                    default=self.config_entry.options.get("metric_units_only", True)
+                    default=self._config_entry.options.get("metric_units_only", True)
                 ): bool,
             }),
             description_placeholders={

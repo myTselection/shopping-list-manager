@@ -1194,12 +1194,13 @@ def websocket_get_integration_settings(
                 "US": "United States",
                 "GB": "United Kingdom",
                 "CA": "Canada",
+                "BE": "Belgium (Dutch)",
             },
         }
     )
 
 
-_VALID_COUNTRIES = ["NZ", "AU", "US", "GB", "CA"]
+_VALID_COUNTRIES = ["NZ", "AU", "US", "GB", "CA", "BE"]
 
 @websocket_api.websocket_command(
     {

@@ -1,8 +1,8 @@
 """Shopping List Manager integration for Home Assistant."""
+import json
 import logging
 import os
 
-from pathlib import Path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
@@ -15,6 +15,14 @@ _LOGGER = logging.getLogger(__name__)
 
 # Track storage instance globally
 DATA_STORAGE = f"{DOMAIN}_storage"
+
+
+def _load_manifest_version(component_path: str) -> str:
+    """Load the integration version from manifest.json."""
+    with open(os.path.join(component_path, "manifest.json"), encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+
+    return manifest.get("version", "unknown")
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -44,16 +52,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     image_handler = ImageHandler(hass, config_path)
 
     # Read installed version from manifest
-    import json as _json
-    with open(os.path.join(component_path, "manifest.json")) as _f:
-        _manifest = _json.load(_f)
+    version = await hass.async_add_executor_job(_load_manifest_version, component_path)
 
     # Store instances in hass.data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][DATA_STORAGE] = storage
     hass.data[DOMAIN]["image_handler"] = image_handler
     hass.data[DOMAIN]["country"] = country
-    hass.data[DOMAIN]["version"] = _manifest.get("version", "unknown")
+    hass.data[DOMAIN]["version"] = version
     
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(update_listener))

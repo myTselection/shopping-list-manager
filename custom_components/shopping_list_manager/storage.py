@@ -102,21 +102,8 @@ class ShoppingListStorage:
         self._images_dir.mkdir(parents=True, exist_ok=True)
         await self._migrate_legacy_images_and_urls()
         
-        # Load categories
-        categories_data = await self._store_categories.async_load()
-        if categories_data:
-            self._categories = [Category(**cat_data) for cat_data in categories_data]
-            _LOGGER.debug("Loaded %d categories", len(self._categories))
-        else:
-            # Initialize with default categories from JSON file
-            default_categories = await load_categories(self._component_path, self._country)  # Use self._country
-            self._categories = [Category(**cat) for cat in default_categories]
-            await self._save_categories()
-            _LOGGER.info(
-                "Initialized %d default categories for country: %s", 
-                len(self._categories),
-                self._country  # Use self._country
-            )
+        # Load country-specific system categories so labels follow the selected country.
+        await self._load_categories_for_country(self._country)
         
         # Load product catalog if products are empty
         if not self._products:
@@ -581,6 +568,8 @@ class ShoppingListStorage:
             del self._products[pid]
 
         self._country = country_code
+        await self._load_categories_for_country(country_code)
+
         catalog_products = await load_product_catalog(self._component_path, country_code)
         count = 0
         for prod_data in catalog_products:
@@ -738,6 +727,17 @@ class ShoppingListStorage:
             _LOGGER.warning("Failed to write config backup: %s", err)
     
     # Categories methods
+    async def _load_categories_for_country(self, country_code: str) -> None:
+        """Load and persist system categories for the selected country."""
+        categories = await load_categories(self._component_path, country_code)
+        self._categories = [Category(**cat_data) for cat_data in categories]
+        await self._save_categories()
+        _LOGGER.info(
+            "Loaded %d categories for country: %s",
+            len(self._categories),
+            country_code,
+        )
+
     async def _save_categories(self) -> None:
         """Save categories to storage."""
         data = [cat.to_dict() for cat in self._categories]

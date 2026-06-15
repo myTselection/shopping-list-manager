@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shopping List Manager",
+        "description": "Stel de Shopping List Manager-integratie in. Land en andere instellingen kunnen na de setup worden geconfigureerd via de knop Configureren."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Slechts één exemplaar van Shopping List Manager is toegestaan."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shopping List Manager Opties",
+        "description": "Het wijzigen van land zal de productcatalogus bij de volgende herstart herladen.",
+        "data": {
+          "country": "Land",
+          "enable_price_tracking": "Prijstracking inschakelen",
+          "enable_image_search": "Afbeeldingen zoeken inschakelen",
+          "metric_units_only": "Alleen metrische eenheden"
+        },
+        "data_description": {
+          "country": "Wordt gebruikt om de productcatalogus en prijzen te lokaliseren.",
+          "enable_price_tracking": "Productprijzen bijhouden en weergeven.",
+          "enable_image_search": "Automatisch naar productafbeeldingen zoeken.",
+          "metric_units_only": "Alleen metrische eenheden weergeven (g, kg, ml, L)."
+        }
+      }
+    }
+  }
+}
